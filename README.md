@@ -110,6 +110,7 @@ counterTorque = −yawRate × yawDampingTorque × speedFactor × driftFactor
 `driftFactor` drops to 15 % when the drift key is held, so the player can still initiate and hold a controlled slide. This replaces magic steer-angle clamping with something physically motivated.
 
 ### Ackermann Steering Geometry
+<img width="480" height="400" alt="A-front-wheel-steering-vehicle-and-steer-angles-of-the-inner-and-outer-wheels" src="https://github.com/user-attachments/assets/0b09fee2-5267-4c82-b44c-0ff21f8972f4" />
 
 The inner and outer front wheels steer at different angles computed from the turn radius:
 
