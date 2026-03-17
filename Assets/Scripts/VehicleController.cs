@@ -165,6 +165,7 @@ public class VehicleController : MonoBehaviour
     // ──────────────────────────────────────────────────────────
 
     private Rigidbody _rb;
+    private VehicleInputProvider _inputProvider;
 
     private float _steerInput;
     private float _throttleInput;
@@ -229,7 +230,7 @@ public class VehicleController : MonoBehaviour
                 suspension.damperStiffness = 2500f;
                 suspension.restLength = 0.50f;
                 suspension.wheelRadius = 0.40f;
-                traction.lateralGripMax = 3000f;
+                traction.lateralGripMax = 4000f;
                 traction.peakSlipAngle = 14f;
                 traction.gripFalloff = 0.55f;
                 traction.tractionForce = 7500f;
@@ -245,6 +246,7 @@ public class VehicleController : MonoBehaviour
     {
         _rb = GetComponent<Rigidbody>();
         _rb.centerOfMass = centreOfMassOffset;
+        _inputProvider = GetComponent<VehicleInputProvider>();
 
         ApplyPreset();
 
@@ -333,10 +335,22 @@ public class VehicleController : MonoBehaviour
 
     private void GatherInput()
     {
-        _throttleInput = Input.GetAxis("Vertical");
-        _steerInput = Input.GetAxis("Horizontal");
-        _brakeInput = Input.GetKey(KeyCode.LeftShift) ? 1f : 0f;
-        _driftInput = drift.driftEnabled && Input.GetKey(drift.driftKey);
+        if (_inputProvider != null)
+        {
+            // Delegate entirely to whichever input mode the player chose
+            _throttleInput = _inputProvider.Throttle;
+            _steerInput = _inputProvider.Steer;
+            _brakeInput = _inputProvider.Brake;
+            _driftInput = drift.driftEnabled && _inputProvider.Drift;
+        }
+        else
+        {
+            // Fallback: direct keyboard (no provider attached)
+            _throttleInput = Input.GetAxis("Vertical");
+            _steerInput = Input.GetAxis("Horizontal");
+            _brakeInput = Input.GetKey(KeyCode.LeftShift) ? 1f : 0f;
+            _driftInput = drift.driftEnabled && Input.GetKey(drift.driftKey);
+        }
     }
 
     // ──────────────────────────────────────────────────────────

@@ -7,9 +7,9 @@ public class ProceduralGroundGenerator : MonoBehaviour
     //  Inspector
     // ─────────────────────────────────────────────────────────
 
-    [Header("Target")]
-    [Tooltip("The transform to follow (your car). Auto-found if null.")]
-    public Transform target;
+    [Header("Targets")]
+    [Tooltip("All transforms to follow (one per car). Auto-found if empty.")]
+    public Transform[] targets;
 
     [Header("Chunk Settings")]
     [Tooltip("Size of each square chunk in world units.")]
@@ -58,7 +58,8 @@ public class ProceduralGroundGenerator : MonoBehaviour
     private readonly Dictionary<Vector2Int, Chunk> _active = new Dictionary<Vector2Int, Chunk>();
     private readonly Queue<Chunk> _pool = new Queue<Chunk>();
 
-    private Vector2Int _lastCarCoord = new Vector2Int(int.MaxValue, int.MaxValue);
+    private readonly System.Collections.Generic.Dictionary<Transform, Vector2Int> _targetLastCoords
+        = new System.Collections.Generic.Dictionary<Transform, Vector2Int>();
     private Material _mat;
 
     // ─────────────────────────────────────────────────────────
@@ -67,10 +68,12 @@ public class ProceduralGroundGenerator : MonoBehaviour
 
     private void Awake()
     {
-        if (target == null)
+        if (targets == null || targets.Length == 0)
         {
-            var vc = FindFirstObjectByType<VehicleController>();
-            if (vc != null) target = vc.transform;
+            var vcs = FindObjectsByType<VehicleController>(FindObjectsSortMode.None);
+            targets = new Transform[vcs.Length];
+            for (int i = 0; i < vcs.Length; i++)
+                targets[i] = vcs[i].transform;
         }
 
         // Build shared material
@@ -96,43 +99,73 @@ public class ProceduralGroundGenerator : MonoBehaviour
     {
         // Force-build all chunks under the car before the first FixedUpdate.
         // Without this the car spawns above empty space and falls through.
-        if (target != null)
+        if (targets != null && targets.Length > 0)
         {
-            Vector2Int carCoord = WorldToCoord(target.position);
-            _lastCarCoord = carCoord;
-            RefreshChunks(carCoord);
-            // Tell the physics engine about the new collider positions immediately
+            // Prime the _targetLastCoords so Update can detect future moves
+            foreach (var t in targets)
+                if (t != null)
+                    _targetLastCoords[t] = WorldToCoord(t.position);
+
+            RefreshAll();                  // load the union of all targets at once
             Physics.SyncTransforms();
         }
     }
 
     private void Update()
     {
-        if (target == null) return;
+        if (targets == null || targets.Length == 0) return;
 
-        Vector2Int carCoord = WorldToCoord(target.position);
-        if (carCoord == _lastCarCoord) return;   // car hasn't crossed a chunk boundary
-        _lastCarCoord = carCoord;
+        // Check whether any target has crossed a chunk boundary
+        bool anyMoved = false;
+        foreach (var t in targets)
+        {
+            if (t == null) continue;
+            Vector2Int coord = WorldToCoord(t.position);
+            if (!_targetLastCoords.TryGetValue(t, out Vector2Int last) || last != coord)
+            {
+                _targetLastCoords[t] = coord;
+                anyMoved = true;
+            }
+        }
 
-        RefreshChunks(carCoord);
-        // Keep colliders in sync when chunks are recycled mid-frame
-        Physics.SyncTransforms();
+        // Only rebuild the full required set when something actually changed.
+        // RefreshAll considers ALL targets at once — never recycles a chunk
+        // still needed by another car.
+        if (anyMoved)
+        {
+            RefreshAll();
+            Physics.SyncTransforms();
+        }
     }
 
     // ─────────────────────────────────────────────────────────
     //  Chunk management
     // ─────────────────────────────────────────────────────────
 
-    private void RefreshChunks(Vector2Int carCoord)
+    /// <summary>Compute the union of all targets' view windows and refresh.</summary>
+    /// <summary>
+    /// Rebuilds the active chunk set so every coordinate needed by ANY target
+    /// is loaded, and coordinates needed by NO target are recycled.
+    /// Called once whenever any car crosses a chunk boundary.
+    /// </summary>
+    private void RefreshAll()
     {
-        // 1. Collect every chunk that is now outside the view radius
+        // 1. Build the union of all coordinates required by every target
+        var required = new HashSet<Vector2Int>();
+        foreach (var t in targets)
+        {
+            if (t == null) continue;
+            Vector2Int centre = WorldToCoord(t.position);
+            for (int dx = -viewRadius; dx <= viewRadius; dx++)
+                for (int dz = -viewRadius; dz <= viewRadius; dz++)
+                    required.Add(new Vector2Int(centre.x + dx, centre.y + dz));
+        }
+
+        // 2. Recycle any chunk that is no longer required by any target
         var toRecycle = new List<Vector2Int>();
         foreach (var kv in _active)
-        {
-            Vector2Int d = kv.Key - carCoord;
-            if (Mathf.Abs(d.x) > viewRadius || Mathf.Abs(d.y) > viewRadius)
+            if (!required.Contains(kv.Key))
                 toRecycle.Add(kv.Key);
-        }
 
         foreach (var coord in toRecycle)
         {
@@ -142,28 +175,18 @@ public class ProceduralGroundGenerator : MonoBehaviour
             _pool.Enqueue(c);
         }
 
-        // 2. Activate or place chunks for every cell in the view window
-        for (int dx = -viewRadius; dx <= viewRadius; dx++)
-            for (int dz = -viewRadius; dz <= viewRadius; dz++)
-            {
-                Vector2Int coord = new Vector2Int(carCoord.x + dx, carCoord.y + dz);
-                if (_active.ContainsKey(coord)) continue;
-
-                Chunk chunk;
-                if (_pool.Count > 0)
-                {
-                    chunk = _pool.Dequeue();
-                }
-                else
-                {
-                    // Pool exhausted — grow it (shouldn't happen with correct poolCount)
-                    chunk = CreateChunk();
-                }
-
-                PlaceChunk(chunk, coord);
-                _active[coord] = chunk;
-            }
+        // 3. Place any required chunk that is not yet active
+        foreach (var coord in required)
+        {
+            if (_active.ContainsKey(coord)) continue;
+            Chunk chunk = _pool.Count > 0 ? _pool.Dequeue() : CreateChunk();
+            PlaceChunk(chunk, coord);
+            _active[coord] = chunk;
+        }
     }
+
+    // Legacy name kept so existing callers compile without change
+    private void RefreshAround(Vector3 _) => RefreshAll();
 
     private void PlaceChunk(Chunk c, Vector2Int coord)
     {
@@ -301,22 +324,4 @@ public class ProceduralGroundGenerator : MonoBehaviour
             Destroy(_mat);
     }
 
-#if UNITY_EDITOR
-    private void OnDrawGizmosSelected()
-    {
-        if (!Application.isPlaying || target == null) return;
-
-        Vector2Int cc = WorldToCoord(target.position);
-        float s = chunkSize;
-
-        Gizmos.color = new Color(0f, 1f, 0.5f, 0.25f);
-        for (int dx = -viewRadius; dx <= viewRadius; dx++)
-            for (int dz = -viewRadius; dz <= viewRadius; dz++)
-            {
-                Vector3 origin = CoordToWorld(new Vector2Int(cc.x + dx, cc.y + dz));
-                Gizmos.DrawWireCube(origin + new Vector3(s * 0.5f, 0f, s * 0.5f),
-                                    new Vector3(s, 0.01f, s));
-            }
-    }
-#endif
 }

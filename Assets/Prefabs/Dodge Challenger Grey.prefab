@@ -925,8 +925,9 @@ GameObject:
   - component: {fileID: 4480236083371784432}
   - component: {fileID: 2103811104797215906}
   - component: {fileID: 9112793610828973575}
+  - component: {fileID: 2062535696004696868}
   m_Layer: 7
-  m_Name: Dodge Challenger(White_Custom) 1
+  m_Name: Dodge Challenger Grey
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -983,7 +984,7 @@ Rigidbody:
     m_Bits: 0
   m_ExcludeLayers:
     serializedVersion: 2
-    m_Bits: 128
+    m_Bits: 0
   m_ImplicitCom: 0
   m_ImplicitTensor: 1
   m_UseGravity: 1
@@ -1193,6 +1194,31 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!114 &2062535696004696868
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6141647645917608797}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9db5a3008b1891f42970a30c882a4ee9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::VehicleInputProvider
+  playerIndex: 0
+  mode: 2
+  keyForward: 119
+  keyBack: 115
+  keyLeft: 97
+  keyRight: 100
+  keyBrake: 304
+  keyDrift: 32
+  gamepadName: Twin USB Gamepad
+  touchThrottle: 0
+  touchSteer: 0
+  touchBrake: 0
+  touchDrift: 0
 --- !u!1 &6278612846876527751
 GameObject:
   m_ObjectHideFlags: 0
@@ -1417,7 +1443,7 @@ MeshRenderer:
   m_Materials:
   - {fileID: 2100000, guid: 4bbe9d8c73e1a854e9f10a08674157a0, type: 2}
   - {fileID: 2100000, guid: bd10ab4110f26c14da17c02c3798fbf8, type: 2}
-  - {fileID: 2100000, guid: 4894cd82e0d96ab42833185f7a15811d, type: 2}
+  - {fileID: 2100000, guid: d57cf6a6b00b6dd4f93b6afd2da9f046, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
