@@ -582,6 +582,7 @@ MonoBehaviour:
     engineBraking: 800
     brakeForce: 6000
     stillSpeedThreshold: 0.4
+  markWidth: 0.2
   drift:
     driftEnabled: 1
     driftKey: 32
