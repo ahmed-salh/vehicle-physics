@@ -24,7 +24,7 @@
 
 ### Drifting & Skid Marks
 
-![Drifting demo](https://drive.google.com/uc?export=view&id=15impLyIHtPqf5ec_XRCRbUCWnol8-f2-)
+![Drifting demo](Docs/Vehicle_Types.gif)
 
 *Rear grip reduction on drift key · LineRenderer tyre marks · Fade-out over time*
 
@@ -33,8 +33,7 @@
 
 ### Speedometer HUD
 
-<!-- UPLOAD GIF HERE -->
-![Ackermann steering demo](https://drive.google.com/uc?export=view&id=135jV1NmLJyHg2s25BdlN2nBonUaPz2qj)
+![Ackermann steering demo](Docs/Drifting.gif)
 
 *Inner wheel tighter radius · Speed-sensitive angle reduction · Smooth lerp per wheel*
 
@@ -45,7 +44,7 @@
 
 ### Split-Screen Multiplayer
 
-![Split screen demo](https://drive.google.com/uc?export=view&id=114AGCZuDbE5x2eoeYMky9yIRfBqng3VY)
+![Split screen demo](Docs/split_screen.gif)
 
 *Auto-activates on gamepad connect · Vertical split · Independent cameras & HUDs*
 
@@ -54,7 +53,7 @@
 
 ### Suspension & Wheel Spin
 
-![Suspension demo](https://drive.google.com/uc?export=view&id=1YBVkV24MimZUxQWFFw1Wb9OUMoTR3XSH)
+![Suspension demo](Docs/Suspensions.gif)
 
 *Per-wheel raycast suspension · Brake lock-up visual · Left/right wheel flip preserved*
 
