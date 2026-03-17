@@ -1,42 +1,40 @@
 ﻿using UnityEngine;
 
 /// <summary>
-/// VehicleInputProvider  v1
+/// VehicleInputProvider  v5
 ///
-/// Decouples input source from VehicleController.
-/// One instance is attached per car. It reads from whichever input mode
-/// is currently selected (Keyboard, Gamepad, or Touch) and exposes
-/// four normalised floats that VehicleController polls every Update.
+/// Key fix: joystick SLOT is now discovered dynamically.
+/// Input.GetJoystickNames() returns an array where index 0 = slot 1,
+/// index 1 = slot 2, etc.  An empty string means no pad in that slot.
+/// We scan the array to find the Nth occupied slot for this player
+/// (N = gamepadSlotRank, default 0 = first connected pad).
 ///
-/// INPUT MODES
-/// ───────────
-/// Keyboard  : WASD / Arrow keys + LShift (brake) + Space (drift)
-///             Player 2 uses IJKL + RShift + RCtrl by default
-/// Gamepad   : Left-stick steer/throttle, LT brake, RB drift
-///             Player index maps to Unity's joystick number
-/// Touch     : Virtual on-screen buttons managed by TouchInputOverlay
-///             (created automatically when mode = Touch)
+/// This means it doesn't matter whether the pad is physically on
+/// USB port 1 or 2 — the code finds it.
+///
+/// Twin USB Gamepad / generic DirectInput HID axis layout:
+///   axis 0 = left stick X   → steer       (-1 left … +1 right)
+///   axis 1 = left stick Y   → throttle    (-1 up   … +1 down, inverted)
+///   axis 6 = D-pad X        → steer fallback
+///   axis 7 = D-pad Y        → throttle fallback (inverted)
+///   button 0 = A/Cross      → drift
+///   button 1 = B/Circle     → brake
 /// </summary>
 public class VehicleInputProvider : MonoBehaviour
 {
-    // ──────────────────────────────────────────────────────────
-    //  Public enum
-    // ──────────────────────────────────────────────────────────
-
-    public enum InputMode { Keyboard, Gamepad, Touch }
+    public enum InputMode { Keyboard, Gamepad }
 
     // ──────────────────────────────────────────────────────────
     //  Inspector
     // ──────────────────────────────────────────────────────────
 
     [Header("Identity")]
-    [Tooltip("0 = Player 1, 1 = Player 2. Controls default key sets and gamepad index.")]
     public int playerIndex = 0;
 
     [Header("Active Mode")]
     public InputMode mode = InputMode.Keyboard;
 
-    [Header("Keyboard Bindings  (Player 1 defaults)")]
+    [Header("Keyboard Bindings")]
     public KeyCode keyForward = KeyCode.W;
     public KeyCode keyBack = KeyCode.S;
     public KeyCode keyLeft = KeyCode.A;
@@ -45,40 +43,45 @@ public class VehicleInputProvider : MonoBehaviour
     public KeyCode keyDrift = KeyCode.Space;
 
     [Header("Gamepad")]
-    [Tooltip("'Joystick1' for player 1, 'Joystick2' for player 2, etc.")]
-    public string gamepadName = "Joystick1";
+    [Tooltip("0 = first connected gamepad, 1 = second connected gamepad.\n" +
+             "This is NOT the USB port number — it's the rank among connected pads.")]
+    public int gamepadSlotRank = 0;
+
+    [Tooltip("Axis index for steering (left stick X). Default 0.")]
+    public int axisSteer = 0;
+    [Tooltip("Axis index for throttle (left stick Y). Default 1.")]
+    public int axisThrottle = 1;
+    [Tooltip("Invert throttle axis (enable for DirectInput / Twin USB pads).")]
+    public bool invertThrottle = true;
+    [Tooltip("Analogue brake axis index. -1 = use button instead.")]
+    public int axisBrake = -1;
+    [Range(0f, 0.4f)]
+    public float deadZone = 0.15f;
+
+    [Header("Gamepad Buttons (0-based)")]
+    public int btnDrift = 0;   // A / Cross
+    public int btnBrake = 1;   // B / Circle
 
     // ──────────────────────────────────────────────────────────
-    //  Output values  (read by VehicleController)
+    //  Output
     // ──────────────────────────────────────────────────────────
 
-    public float Throttle { get; private set; }   // -1..1  (negative = reverse)
-    public float Steer { get; private set; }   // -1..1
-    public float Brake { get; private set; }   //  0..1
+    public float Throttle { get; private set; }
+    public float Steer { get; private set; }
+    public float Brake { get; private set; }
     public bool Drift { get; private set; }
 
-    // ──────────────────────────────────────────────────────────
-    //  Touch state (written by TouchInputOverlay)
-    // ──────────────────────────────────────────────────────────
-
-    [HideInInspector] public float touchThrottle;
-    [HideInInspector] public float touchSteer;
-    [HideInInspector] public float touchBrake;
-    [HideInInspector] public bool touchDrift;
+    // Resolved at runtime: "joystick N" where N is the actual Unity slot (1-based)
+    private int _resolvedSlot = -1;   // -1 = not yet found
+    private string _joyPrefix = "";
+    private float _slotCheckTimer = 0f;
 
     // ──────────────────────────────────────────────────────────
-    //  Runtime
-    // ──────────────────────────────────────────────────────────
-
-    private TouchInputOverlay _touchOverlay;
-
-    // ──────────────────────────────────────────────────────────
-    //  Unity lifecycle
+    //  Awake / lifecycle
     // ──────────────────────────────────────────────────────────
 
     private void Awake()
     {
-        // Apply player-2 default key bindings automatically
         if (playerIndex == 1 && keyForward == KeyCode.W)
         {
             keyForward = KeyCode.I;
@@ -87,103 +90,169 @@ public class VehicleInputProvider : MonoBehaviour
             keyRight = KeyCode.L;
             keyBrake = KeyCode.RightShift;
             keyDrift = KeyCode.RightControl;
-            gamepadName = "Joystick2";
         }
     }
 
     private void Update()
     {
-        switch (mode)
+        if (mode == InputMode.Gamepad)
         {
-            case InputMode.Keyboard: ReadKeyboard(); break;
-            case InputMode.Gamepad: ReadGamepad(); break;
-            case InputMode.Touch: ReadTouch(); break;
+            // Re-scan slot every 2 seconds in case pad reconnects
+            _slotCheckTimer -= Time.deltaTime;
+            if (_slotCheckTimer <= 0f)
+            {
+                _slotCheckTimer = 2f;
+                ResolveSlot();
+            }
+
+            if (_resolvedSlot > 0)
+                ReadGamepad();
+            // If slot not found yet, outputs stay at 0 (safe)
+        }
+        else
+        {
+            ReadKeyboard();
         }
     }
 
     // ──────────────────────────────────────────────────────────
-    //  Mode switching  (called from InputControllerMenu)
+    //  Slot resolution
+    // ──────────────────────────────────────────────────────────
+
+    /// Scan GetJoystickNames() and pick the Nth occupied slot (0-based rank).
+    private void ResolveSlot()
+    {
+        string[] names = Input.GetJoystickNames();
+        int rank = 0;
+        for (int i = 0; i < names.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(names[i])) continue;
+
+            if (rank == gamepadSlotRank)
+            {
+                int slot = i + 1;   // Unity slots are 1-based
+                if (slot != _resolvedSlot)
+                {
+                    _resolvedSlot = slot;
+                    _joyPrefix = $"joystick {slot}";
+                    Debug.Log($"[VehicleInputProvider P{playerIndex}] " +
+                              $"Gamepad rank {gamepadSlotRank} → slot {slot} " +
+                              $"(\"{names[i].Trim()}\")  prefix=\"{_joyPrefix}\"");
+                }
+                return;
+            }
+            rank++;
+        }
+
+        // No pad found at this rank
+        if (_resolvedSlot != -1)
+        {
+            Debug.LogWarning($"[VehicleInputProvider P{playerIndex}] " +
+                             $"Gamepad rank {gamepadSlotRank} disconnected.");
+            _resolvedSlot = -1;
+            _joyPrefix = "";
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  Public API
     // ──────────────────────────────────────────────────────────
 
     public void SetMode(InputMode newMode)
     {
         mode = newMode;
-
-        // Create / destroy the touch overlay as needed
-        if (mode == InputMode.Touch)
+        if (newMode == InputMode.Gamepad)
         {
-            if (_touchOverlay == null)
-                _touchOverlay = TouchInputOverlay.CreateFor(this);
-        }
-        else
-        {
-            if (_touchOverlay != null)
-            {
-                Destroy(_touchOverlay.gameObject);
-                _touchOverlay = null;
-            }
+            _slotCheckTimer = 0f;   // force immediate scan
+            _resolvedSlot = -1;
         }
     }
 
+    public static int ConnectedGamepadCount()
+    {
+        int n = 0;
+        foreach (var s in Input.GetJoystickNames())
+            if (!string.IsNullOrWhiteSpace(s)) n++;
+        return n;
+    }
+
+    public static bool IsGamepadConnected() => ConnectedGamepadCount() > 0;
+
     // ──────────────────────────────────────────────────────────
-    //  Readers
+    //  Gamepad reader
+    // ──────────────────────────────────────────────────────────
+
+    private void ReadGamepad()
+    {
+        // ── Steering ───────────────────────────────────────────
+        float steerRaw = RawAxis(axisSteer);
+        if (Mathf.Abs(steerRaw) <= deadZone)
+            steerRaw = RawAxis(6);              // D-pad X fallback
+        Steer = DZ(steerRaw);
+
+        // ── Throttle ───────────────────────────────────────────
+        float throttleRaw = RawAxis(axisThrottle);
+        if (invertThrottle) throttleRaw = -throttleRaw;
+        if (Mathf.Abs(throttleRaw) <= deadZone)
+            throttleRaw = -RawAxis(7);          // D-pad Y fallback (inverted)
+        Throttle = DZ(throttleRaw);
+
+        // ── Brake ──────────────────────────────────────────────
+        if (axisBrake >= 0)
+        {
+            float raw = RawAxis(axisBrake);
+            // Handle triggers that rest at -1 (DirectInput) or 0 (XInput)
+            Brake = raw < -0.5f
+                ? Mathf.Clamp01(raw + 1f)
+                : Mathf.Clamp01(raw);
+        }
+        else
+        {
+            Brake = IsJoyBtn(btnBrake) ? 1f : 0f;
+        }
+
+        // ── Drift ──────────────────────────────────────────────
+        Drift = IsJoyBtn(btnDrift);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  Keyboard reader
     // ──────────────────────────────────────────────────────────
 
     private void ReadKeyboard()
     {
-        float fwd = Input.GetKey(keyForward) ? 1f : 0f;
-        float back = Input.GetKey(keyBack) ? -1f : 0f;
-        float left = Input.GetKey(keyLeft) ? -1f : 0f;
-        float right = Input.GetKey(keyRight) ? 1f : 0f;
-
-        Throttle = Mathf.Clamp(fwd + back, -1f, 1f);
-        Steer = Mathf.Clamp(left + right, -1f, 1f);
+        Throttle = Mathf.Clamp(
+            (Input.GetKey(keyForward) ? 1f : 0f) +
+            (Input.GetKey(keyBack) ? -1f : 0f), -1f, 1f);
+        Steer = Mathf.Clamp(
+            (Input.GetKey(keyLeft) ? -1f : 0f) +
+            (Input.GetKey(keyRight) ? 1f : 0f), -1f, 1f);
         Brake = Input.GetKey(keyBrake) ? 1f : 0f;
         Drift = Input.GetKey(keyDrift);
-    }
-
-    private void ReadGamepad()
-    {
-        // Unity's legacy Input system names gamepad axes like
-        // "Joystick1 Axis 1", "Joystick1 Axis 2", etc.
-        // Left-stick X = Axis 1, Left-stick Y = Axis 2 (inverted on many pads)
-        // Left-trigger  = Axis 9, Right-bumper = Joystick button 5 (XInput mapping)
-
-        string prefix = gamepadName + " ";
-
-        float steerRaw = GetAxis(prefix + "Axis 1");
-        float throttleRaw = -GetAxis(prefix + "Axis 2");  // up = forward on most pads
-        float triggerLeft = Mathf.Clamp01(GetAxis(prefix + "Axis 9"));
-
-        Throttle = throttleRaw;
-        Steer = steerRaw;
-        Brake = triggerLeft;
-        Drift = Input.GetKey(GamepadButton(5));   // RB
-    }
-
-    private void ReadTouch()
-    {
-        Throttle = touchThrottle;
-        Steer = touchSteer;
-        Brake = touchBrake;
-        Drift = touchDrift;
     }
 
     // ──────────────────────────────────────────────────────────
     //  Helpers
     // ──────────────────────────────────────────────────────────
 
-    private static float GetAxis(string name)
+    private float RawAxis(int idx)
     {
-        try { return Input.GetAxis(name); }
+        if (string.IsNullOrEmpty(_joyPrefix)) return 0f;
+        try { return Input.GetAxisRaw($"{_joyPrefix} axis {idx}"); }
         catch { return 0f; }
     }
 
-    /// Returns the KeyCode for button N on gamepadName
-    private KeyCode GamepadButton(int btn)
+    private float DZ(float v)
     {
-        // KeyCode.Joystick1Button0 = 350, each joystick is +20 buttons apart
-        int joystickOffset = playerIndex * 20;
-        return (KeyCode)(350 + joystickOffset + btn);
+        if (Mathf.Abs(v) < deadZone) return 0f;
+        return Mathf.Sign(v) * (Mathf.Abs(v) - deadZone) / (1f - deadZone);
+    }
+
+    // Slot-aware button check: uses the resolved slot, not playerIndex arithmetic
+    private bool IsJoyBtn(int btn)
+    {
+        if (_resolvedSlot < 1) return false;
+        // KeyCode.Joystick1Button0 = 350, each slot adds 20
+        return Input.GetKey((KeyCode)(350 + (_resolvedSlot - 1) * 20 + btn));
     }
 }

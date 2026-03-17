@@ -138,6 +138,8 @@ public class VehicleController : MonoBehaviour
 
     [Header("Traction")]
     public TractionSettings traction = new TractionSettings();
+    public float markWidth;
+
 
     [Header("Drift")]
     public DriftSettings drift = new DriftSettings();
@@ -305,6 +307,8 @@ public class VehicleController : MonoBehaviour
                 go.transform.SetParent(effectParent, false);
                 go.AddComponent<LineRenderer>();
                 _skidEffects[i] = go.AddComponent<WheelSkidEffect>();
+                _skidEffects[i].markWidth = markWidth;
+                
             }
         }
     }

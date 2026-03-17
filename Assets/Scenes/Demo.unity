@@ -363,9 +363,9 @@ MonoBehaviour:
   chunkSize: 40
   viewRadius: 3
   subdivisions: 8
-  noiseScale: 2.24
-  noiseAmplitude: 1.1
-  noiseSeed: 42.3
+  noiseScale: 0.025
+  noiseAmplitude: 0.2
+  noiseSeed: 43.1
   groundMaterial: {fileID: 2100000, guid: 0e09f7162beb9144d95ab4a9d8167b7e, type: 2}
   groundColor: {r: 0.22, g: 0.22, b: 0.22, a: 1}
 --- !u!1 &1862702405
@@ -403,13 +403,11 @@ MonoBehaviour:
     type: 3}
   spawnPoint1: {fileID: 959495601}
   spawnPoint2: {fileID: 1984821105}
-  splitMode: 1
   followDistance: 7
   followHeight: 3.5
   followSmooth: 5
-  player1Mode: 0
-  player2Mode: 0
   speedometerDiameter: 160
+  pollInterval: 1
 --- !u!4 &1862702407
 Transform:
   m_ObjectHideFlags: 0
@@ -461,7 +459,7 @@ SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
   - {fileID: 1358019967}
-  - {fileID: 70501060}
   - {fileID: 1862702407}
+  - {fileID: 70501060}
   - {fileID: 959495601}
   - {fileID: 1984821105}
