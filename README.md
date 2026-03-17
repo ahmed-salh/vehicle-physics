@@ -253,3 +253,6 @@ Steerable front wheels have two rotation axes: **Y** (steer) and **X** (spin). I
 MIT — see [LICENSE](LICENSE) for details.  
 Free to use, modify, and distribute. Attribution appreciated but not required.
 
+### See the full showcase on my YouTube channel
+
+[![Video Title](https://img.youtube.com/vi/lB94Q1YQLDs/0.jpg)](https://www.youtube.com/watch?v=lB94Q1YQLDs)
