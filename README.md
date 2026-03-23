@@ -24,7 +24,7 @@
 
 ### Drifting & Skid Marks
 
-![Drifting demo](https://drive.google.com/uc?export=view&id=15impLyIHtPqf5ec_XRCRbUCWnol8-f2-)
+![Drifting demo](Docs/Vehicle_Types.gif)
 
 *Rear grip reduction on drift key · LineRenderer tyre marks · Fade-out over time*
 
@@ -33,8 +33,7 @@
 
 ### Speedometer HUD
 
-<!-- UPLOAD GIF HERE -->
-![Ackermann steering demo](https://drive.google.com/uc?export=view&id=135jV1NmLJyHg2s25BdlN2nBonUaPz2qj)
+![Ackermann steering demo](Docs/Drifting.gif)
 
 *Inner wheel tighter radius · Speed-sensitive angle reduction · Smooth lerp per wheel*
 
@@ -45,7 +44,7 @@
 
 ### Split-Screen Multiplayer
 
-![Split screen demo](https://drive.google.com/uc?export=view&id=114AGCZuDbE5x2eoeYMky9yIRfBqng3VY)
+![Split screen demo](Docs/split_screen.gif)
 
 *Auto-activates on gamepad connect · Vertical split · Independent cameras & HUDs*
 
@@ -54,7 +53,7 @@
 
 ### Suspension & Wheel Spin
 
-![Suspension demo](https://drive.google.com/uc?export=view&id=1YBVkV24MimZUxQWFFw1Wb9OUMoTR3XSH)
+![Suspension demo](Docs/Suspensions.gif)
 
 *Per-wheel raycast suspension · Brake lock-up visual · Left/right wheel flip preserved*
 
@@ -111,6 +110,7 @@ counterTorque = −yawRate × yawDampingTorque × speedFactor × driftFactor
 `driftFactor` drops to 15 % when the drift key is held, so the player can still initiate and hold a controlled slide. This replaces magic steer-angle clamping with something physically motivated.
 
 ### Ackermann Steering Geometry
+<img width="480" height="400" alt="A-front-wheel-steering-vehicle-and-steer-angles-of-the-inner-and-outer-wheels" src="https://github.com/user-attachments/assets/0b09fee2-5267-4c82-b44c-0ff21f8972f4" />
 
 The inner and outer front wheels steer at different angles computed from the turn radius:
 
@@ -253,3 +253,6 @@ Steerable front wheels have two rotation axes: **Y** (steer) and **X** (spin). I
 MIT — see [LICENSE](LICENSE) for details.  
 Free to use, modify, and distribute. Attribution appreciated but not required.
 
+### See the full showcase on my YouTube channel
+
+[![Video Title](https://img.youtube.com/vi/lB94Q1YQLDs/0.jpg)](https://www.youtube.com/watch?v=lB94Q1YQLDs)
