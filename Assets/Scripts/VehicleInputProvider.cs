@@ -1,24 +1,25 @@
 ﻿using UnityEngine;
 
 /// <summary>
-/// VehicleInputProvider  v5
+/// VehicleInputProvider  v8
 ///
-/// Key fix: joystick SLOT is now discovered dynamically.
-/// Input.GetJoystickNames() returns an array where index 0 = slot 1,
-/// index 1 = slot 2, etc.  An empty string means no pad in that slot.
-/// We scan the array to find the Nth occupied slot for this player
-/// (N = gamepadSlotRank, default 0 = first connected pad).
+/// New gamepad layout:
+///   Left stick X / D-pad X  → Steer
+///   R2 (axis 4 DirectInput / axis 5 XInput)  → Forward throttle
+///   L2 (axis 5 DirectInput / axis 4 XInput)  → Reverse throttle
+///   Button 3  (num4 / Y / Triangle)          → Brake
+///   Button 2  (num3 / X / Square)            → Drift
+///   Button 4  (L1 / LB)                      → Open/close Input Menu
+///   Button 5  (R1 / RB)                      → Look-back (hold)
 ///
-/// This means it doesn't matter whether the pad is physically on
-/// USB port 1 or 2 — the code finds it.
+/// The old throttle-on-stick behaviour is REMOVED.
+/// Left stick Y and D-pad Y are ignored for driving.
 ///
-/// Twin USB Gamepad / generic DirectInput HID axis layout:
-///   axis 0 = left stick X   → steer       (-1 left … +1 right)
-///   axis 1 = left stick Y   → throttle    (-1 up   … +1 down, inverted)
-///   axis 6 = D-pad X        → steer fallback
-///   axis 7 = D-pad Y        → throttle fallback (inverted)
-///   button 0 = A/Cross      → drift
-///   button 1 = B/Circle     → brake
+/// Triggers (R2/L2) on this pad (DirectInput / Twin USB):
+///   axis 4 = R2   (rests at -1, pressed = +1)
+///   axis 5 = L2   (rests at -1, pressed = +1)
+/// Public bool LookBack is read by SplitScreenManager to flip the camera.
+/// Public bool MenuToggle fires ONE frame when L1 is pressed (GetKeyDown).
 /// </summary>
 public class VehicleInputProvider : MonoBehaviour
 {
@@ -42,46 +43,55 @@ public class VehicleInputProvider : MonoBehaviour
     public KeyCode keyBrake = KeyCode.LeftShift;
     public KeyCode keyDrift = KeyCode.Space;
 
-    [Header("Gamepad")]
-    [Tooltip("0 = first connected gamepad, 1 = second connected gamepad.\n" +
-             "This is NOT the USB port number — it's the rank among connected pads.")]
+    [Header("Gamepad — Slot")]
+    [Tooltip("0 = first connected pad, 1 = second. Defaults to playerIndex.")]
     public int gamepadSlotRank = 0;
 
-    [Tooltip("Axis index for steering (left stick X). Default 0.")]
+    [Header("Gamepad — Axes")]
+    [Tooltip("Left stick X axis index. Default 0.")]
     public int axisSteer = 0;
-    [Tooltip("Axis index for throttle (left stick Y). Default 1.")]
+    [Tooltip("Left stick Y axis index. Default 1. Also used by D-pad up/down.")]
     public int axisThrottle = 1;
-    [Tooltip("Invert throttle axis (enable for DirectInput / Twin USB pads).")]
+    [Tooltip("Invert throttle axis. Most pads report stick-up as -1 — enable to flip.")]
     public bool invertThrottle = true;
-    [Tooltip("Analogue brake axis index. -1 = use button instead.")]
-    public int axisBrake = -1;
-    [Range(0f, 0.4f)]
-    public float deadZone = 0.15f;
+    [Range(0f, 0.35f)]
+    public float deadZone = 0.12f;
 
-    [Header("Gamepad Buttons (0-based)")]
-    public int btnDrift = 0;   // A / Cross
-    public int btnBrake = 1;   // B / Circle
+    [Header("Gamepad — Buttons (0-based)")]
+    [Tooltip("Brake.     Button 3 = Y / Triangle / num4.")]
+    public int btnBrake = 3;
+    [Tooltip("Drift.     Button 2 = X / Square   / num3.")]
+    public int btnDrift = 2;
+    [Tooltip("Look back. Button 5 = R1 / RB.")]
+    public int btnLookBack = 5;
+    [Tooltip("Menu open/close. Button 4 = L1 / LB.")]
+    public int btnMenuToggle = 4;
 
     // ──────────────────────────────────────────────────────────
-    //  Output
+    //  Output  (read by VehicleController and SplitScreenManager)
     // ──────────────────────────────────────────────────────────
 
-    public float Throttle { get; private set; }
-    public float Steer { get; private set; }
-    public float Brake { get; private set; }
+    public float Throttle { get; private set; }   // -1 reverse … +1 forward
+    public float Steer { get; private set; }   // -1 left … +1 right
+    public float Brake { get; private set; }   //  0 … 1
     public bool Drift { get; private set; }
-
-    // Resolved at runtime: "joystick N" where N is the actual Unity slot (1-based)
-    private int _resolvedSlot = -1;   // -1 = not yet found
-    private string _joyPrefix = "";
-    private float _slotCheckTimer = 0f;
+    public bool LookBack { get; private set; }   // true while R1 held
+    public bool MenuToggle { get; private set; }   // true for ONE frame on L1 down
 
     // ──────────────────────────────────────────────────────────
-    //  Awake / lifecycle
+    //  Runtime
+    // ──────────────────────────────────────────────────────────
+
+    private int _slot = 1;
+    private float _rescanTimer = 0f;
+
+    // ──────────────────────────────────────────────────────────
+    //  Awake
     // ──────────────────────────────────────────────────────────
 
     private void Awake()
     {
+        // P2 keyboard defaults
         if (playerIndex == 1 && keyForward == KeyCode.W)
         {
             keyForward = KeyCode.I;
@@ -91,66 +101,29 @@ public class VehicleInputProvider : MonoBehaviour
             keyBrake = KeyCode.RightShift;
             keyDrift = KeyCode.RightControl;
         }
+
+        gamepadSlotRank = playerIndex;
+        ResolveSlot();
     }
+
+    // ──────────────────────────────────────────────────────────
+    //  Update
+    // ──────────────────────────────────────────────────────────
 
     private void Update()
     {
+        // Always reset one-shot outputs
+        MenuToggle = false;
+
         if (mode == InputMode.Gamepad)
         {
-            // Re-scan slot every 2 seconds in case pad reconnects
-            _slotCheckTimer -= Time.deltaTime;
-            if (_slotCheckTimer <= 0f)
-            {
-                _slotCheckTimer = 2f;
-                ResolveSlot();
-            }
-
-            if (_resolvedSlot > 0)
-                ReadGamepad();
-            // If slot not found yet, outputs stay at 0 (safe)
+            _rescanTimer -= Time.deltaTime;
+            if (_rescanTimer <= 0f) { _rescanTimer = 2f; ResolveSlot(); }
+            ReadGamepad();
         }
         else
         {
             ReadKeyboard();
-        }
-    }
-
-    // ──────────────────────────────────────────────────────────
-    //  Slot resolution
-    // ──────────────────────────────────────────────────────────
-
-    /// Scan GetJoystickNames() and pick the Nth occupied slot (0-based rank).
-    private void ResolveSlot()
-    {
-        string[] names = Input.GetJoystickNames();
-        int rank = 0;
-        for (int i = 0; i < names.Length; i++)
-        {
-            if (string.IsNullOrWhiteSpace(names[i])) continue;
-
-            if (rank == gamepadSlotRank)
-            {
-                int slot = i + 1;   // Unity slots are 1-based
-                if (slot != _resolvedSlot)
-                {
-                    _resolvedSlot = slot;
-                    _joyPrefix = $"joystick {slot}";
-                    Debug.Log($"[VehicleInputProvider P{playerIndex}] " +
-                              $"Gamepad rank {gamepadSlotRank} → slot {slot} " +
-                              $"(\"{names[i].Trim()}\")  prefix=\"{_joyPrefix}\"");
-                }
-                return;
-            }
-            rank++;
-        }
-
-        // No pad found at this rank
-        if (_resolvedSlot != -1)
-        {
-            Debug.LogWarning($"[VehicleInputProvider P{playerIndex}] " +
-                             $"Gamepad rank {gamepadSlotRank} disconnected.");
-            _resolvedSlot = -1;
-            _joyPrefix = "";
         }
     }
 
@@ -161,11 +134,7 @@ public class VehicleInputProvider : MonoBehaviour
     public void SetMode(InputMode newMode)
     {
         mode = newMode;
-        if (newMode == InputMode.Gamepad)
-        {
-            _slotCheckTimer = 0f;   // force immediate scan
-            _resolvedSlot = -1;
-        }
+        if (newMode == InputMode.Gamepad) { _rescanTimer = 0f; ResolveSlot(); }
     }
 
     public static int ConnectedGamepadCount()
@@ -179,40 +148,56 @@ public class VehicleInputProvider : MonoBehaviour
     public static bool IsGamepadConnected() => ConnectedGamepadCount() > 0;
 
     // ──────────────────────────────────────────────────────────
+    //  Slot resolution
+    // ──────────────────────────────────────────────────────────
+
+    private void ResolveSlot()
+    {
+        string[] names = Input.GetJoystickNames();
+        int rank = 0;
+        for (int i = 0; i < names.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(names[i])) continue;
+            if (rank == gamepadSlotRank)
+            {
+                _slot = i + 1;
+                Debug.Log($"[InputProvider P{playerIndex}] slot={_slot} \"{names[i].Trim()}\"");
+                return;
+            }
+            rank++;
+        }
+        _slot = gamepadSlotRank + 1;
+    }
+
+    // ──────────────────────────────────────────────────────────
     //  Gamepad reader
     // ──────────────────────────────────────────────────────────
 
     private void ReadGamepad()
     {
-        // ── Steering ───────────────────────────────────────────
-        float steerRaw = RawAxis(axisSteer);
-        if (Mathf.Abs(steerRaw) <= deadZone)
-            steerRaw = RawAxis(6);              // D-pad X fallback
-        Steer = DZ(steerRaw);
+        // ── Steer: left stick X + D-pad X fallback ────────────
+        float steer = Axis(axisSteer);
+        if (Mathf.Abs(steer) < deadZone) steer = Axis(6);   // D-pad X
+        Steer = DZ(steer);
 
-        // ── Throttle ───────────────────────────────────────────
-        float throttleRaw = RawAxis(axisThrottle);
-        if (invertThrottle) throttleRaw = -throttleRaw;
-        if (Mathf.Abs(throttleRaw) <= deadZone)
-            throttleRaw = -RawAxis(7);          // D-pad Y fallback (inverted)
-        Throttle = DZ(throttleRaw);
+        // ── Throttle: left stick Y + D-pad up/down ────────────
+        // Stick Y is inverted on most pads (up = -1), so negate it.
+        float throttle = Axis(axisThrottle);
+        if (invertThrottle) throttle = -throttle;
+        if (Mathf.Abs(throttle) < deadZone) throttle = -Axis(7);  // D-pad Y (also inverted)
+        Throttle = DZ(throttle);
 
-        // ── Brake ──────────────────────────────────────────────
-        if (axisBrake >= 0)
-        {
-            float raw = RawAxis(axisBrake);
-            // Handle triggers that rest at -1 (DirectInput) or 0 (XInput)
-            Brake = raw < -0.5f
-                ? Mathf.Clamp01(raw + 1f)
-                : Mathf.Clamp01(raw);
-        }
-        else
-        {
-            Brake = IsJoyBtn(btnBrake) ? 1f : 0f;
-        }
+        // ── Brake: button 3 (Y / Triangle / num4) ─────────────
+        Brake = Btn(btnBrake) ? 1f : 0f;
 
-        // ── Drift ──────────────────────────────────────────────
-        Drift = IsJoyBtn(btnDrift);
+        // ── Drift: button 2 (X / Square / num3) ───────────────
+        Drift = Btn(btnDrift);
+
+        // ── Look back: R1 held ─────────────────────────────────
+        LookBack = Btn(btnLookBack);
+
+        // ── Menu toggle: L1 — one-shot on button DOWN ─────────
+        MenuToggle = BtnDown(btnMenuToggle);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -229,16 +214,17 @@ public class VehicleInputProvider : MonoBehaviour
             (Input.GetKey(keyRight) ? 1f : 0f), -1f, 1f);
         Brake = Input.GetKey(keyBrake) ? 1f : 0f;
         Drift = Input.GetKey(keyDrift);
+        LookBack = false;   // keyboard has no look-back by default
+        // MenuToggle for keyboard is handled by InputControllerMenu directly (Tab key)
     }
 
     // ──────────────────────────────────────────────────────────
     //  Helpers
     // ──────────────────────────────────────────────────────────
 
-    private float RawAxis(int idx)
+    private float Axis(int idx)
     {
-        if (string.IsNullOrEmpty(_joyPrefix)) return 0f;
-        try { return Input.GetAxisRaw($"{_joyPrefix} axis {idx}"); }
+        try { return Input.GetAxisRaw($"j{_slot}_axis{idx}"); }
         catch { return 0f; }
     }
 
@@ -248,11 +234,11 @@ public class VehicleInputProvider : MonoBehaviour
         return Mathf.Sign(v) * (Mathf.Abs(v) - deadZone) / (1f - deadZone);
     }
 
-    // Slot-aware button check: uses the resolved slot, not playerIndex arithmetic
-    private bool IsJoyBtn(int btn)
-    {
-        if (_resolvedSlot < 1) return false;
-        // KeyCode.Joystick1Button0 = 350, each slot adds 20
-        return Input.GetKey((KeyCode)(350 + (_resolvedSlot - 1) * 20 + btn));
-    }
+    /// Button held
+    private bool Btn(int btn)
+        => Input.GetKey((KeyCode)(350 + (_slot - 1) * 20 + btn));
+
+    /// Button down this frame only (one-shot)
+    private bool BtnDown(int btn)
+        => Input.GetKeyDown((KeyCode)(350 + (_slot - 1) * 20 + btn));
 }

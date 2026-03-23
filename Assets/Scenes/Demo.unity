@@ -397,15 +397,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b35e35ebf63982e47980668973efcbd1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SplitScreenManager
-  car1Prefab: {fileID: 6141647645917608797, guid: ec6b71df7c3b7d645854e651d9cbc0e9,
+  car1Prefab: {fileID: 6141647645917608797, guid: b7d4b940c68514b4e87a487594889712,
     type: 3}
-  car2Prefab: {fileID: 6141647645917608797, guid: b7d4b940c68514b4e87a487594889712,
+  car2Prefab: {fileID: 6141647645917608797, guid: ec6b71df7c3b7d645854e651d9cbc0e9,
     type: 3}
   spawnPoint1: {fileID: 959495601}
   spawnPoint2: {fileID: 1984821105}
   followDistance: 7
   followHeight: 3.5
   followSmooth: 5
+  lookBackDistance: 7
+  lookBackHeight: 3
+  lookBackSmooth: 10
   speedometerDiameter: 160
   pollInterval: 1
 --- !u!4 &1862702407
@@ -417,7 +420,7 @@ Transform:
   m_GameObject: {fileID: 1862702405}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -42.51686, y: -25.15397, z: 19.73617}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

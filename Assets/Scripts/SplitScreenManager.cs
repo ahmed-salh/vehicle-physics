@@ -43,6 +43,12 @@ public class SplitScreenManager : MonoBehaviour
     public float followDistance = 7f;
     public float followHeight = 3.5f;
     public float followSmooth = 5f;
+    [Tooltip("Distance behind car when looking back (R1 held).")]
+    public float lookBackDistance = 7f;
+    [Tooltip("Height when looking back.")]
+    public float lookBackHeight = 3.0f;
+    [Tooltip("How fast the camera swings to the look-back position.")]
+    public float lookBackSmooth = 10f;
 
     [Header("HUD")]
     public float speedometerDiameter = 180f;
@@ -81,7 +87,9 @@ public class SplitScreenManager : MonoBehaviour
         SpawnCar1();
         SetupCamera1();
 
+        // P1 starts on keyboard; if a pad is already connected give them rank 0
         _input1 = EnsureProvider(_car1, 0, VehicleInputProvider.InputMode.Keyboard);
+        _input1.gamepadSlotRank = 0;   // P1 always uses the FIRST connected pad when on gamepad
 
         _hud1 = AttachSpeedometer(_cam1.gameObject, _ctrl1);
         CreatePlayerLabel(_cam1, "P1", new Color(0.3f, 0.6f, 1.0f));
@@ -100,23 +108,36 @@ public class SplitScreenManager : MonoBehaviour
 
     private void Update()
     {
-        // Camera follow
-        FollowCar(_cam1, _ctrl1);
-        if (_splitActive) FollowCar(_cam2, _ctrl2);
+        // ── MenuToggle from gamepad L1 ────────────────────────
+        PollMenuToggle();
 
-        // Poll for gamepad changes
+        // ── Gamepad connect/disconnect polling ────────────────
         _pollTimer += Time.deltaTime;
-        if (_pollTimer < pollInterval) return;
-        _pollTimer = 0f;
+        if (_pollTimer >= pollInterval)
+        {
+            _pollTimer = 0f;
+            int padCount = VehicleInputProvider.ConnectedGamepadCount();
+            if (!_splitActive && padCount > 0) EnableSplitScreen();
+            else if (_splitActive && padCount == 0) DisableSplitScreen();
+            _lastPadCount = padCount;
+        }
+    }
 
-        int padCount = VehicleInputProvider.ConnectedGamepadCount();
+    private void LateUpdate()
+    {
+        // Camera follow runs in LateUpdate so it reads final car positions
+        FollowCar(_cam1, _ctrl1, _input1);
+        if (_splitActive) FollowCar(_cam2, _ctrl2, _input2);
+    }
 
-        if (!_splitActive && padCount > 0)
-            EnableSplitScreen();
-        else if (_splitActive && padCount == 0)
-            DisableSplitScreen();
+    private void PollMenuToggle()
+    {
+        // Check each provider for the L1 menu-toggle signal (one-shot per frame)
+        var menu = FindFirstObjectByType<InputControllerMenu>();
+        if (menu == null) return;
 
-        _lastPadCount = padCount;
+        if (_input1 != null && _input1.MenuToggle) menu.ToggleFromProvider();
+        if (_input2 != null && _input2.MenuToggle) menu.ToggleFromProvider();
     }
 
     // ──────────────────────────────────────────────────────────
@@ -145,10 +166,11 @@ public class SplitScreenManager : MonoBehaviour
         }
 
         // ── Assign gamepad to P2 ──────────────────────────────
-        // gamepadSlotRank = 0 means "use the first physically connected pad"
-        // regardless of which USB port it is plugged into.
+        // P2 always uses the SECOND connected pad (rank 1).
+        // P1 uses rank 0 (first pad). This way each Twin gamepad
+        // controls its own car independently.
         _input2 = EnsureProvider(_car2, 1, VehicleInputProvider.InputMode.Gamepad);
-        _input2.gamepadSlotRank = 0;
+        _input2.gamepadSlotRank = 1;   // second connected pad
 
         // ── Camera 2 ─────────────────────────────────────────
         if (_cam2 == null) _cam2 = CreateCamera("Cam_P2", 1);
@@ -267,13 +289,22 @@ public class SplitScreenManager : MonoBehaviour
         return cam;
     }
 
-    private void FollowCar(Camera cam, VehicleController ctrl)
+    private void FollowCar(Camera cam, VehicleController ctrl,
+                            VehicleInputProvider input = null)
     {
         if (cam == null || ctrl == null) return;
         Transform t = ctrl.transform;
-        Vector3 target = t.position - t.forward * followDistance + Vector3.up * followHeight;
+
+        bool lookBack = input != null && input.LookBack;
+        float dist = lookBack ? lookBackDistance : followDistance;
+        float height = lookBack ? lookBackHeight : followHeight;
+        float smooth = lookBack ? lookBackSmooth : followSmooth;
+        // Look-back: place camera IN FRONT of car facing backward
+        Vector3 dir = lookBack ? t.forward : -t.forward;
+        Vector3 target = t.position + dir * dist + Vector3.up * height;
+
         cam.transform.position = Vector3.Lerp(cam.transform.position, target,
-                                              Time.deltaTime * followSmooth);
+                                              Time.deltaTime * smooth);
         cam.transform.LookAt(t.position + Vector3.up * 0.5f);
     }
 
@@ -281,12 +312,20 @@ public class SplitScreenManager : MonoBehaviour
     //  Input providers
     // ──────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Attach or retrieve a VehicleInputProvider.
+    /// gamepadRank is set BEFORE SetMode so ResolveSlot uses the right rank.
+    /// Pass -1 to leave the existing rank unchanged.
+    /// </summary>
     private VehicleInputProvider EnsureProvider(GameObject car, int idx,
-                                                VehicleInputProvider.InputMode mode)
+                                                VehicleInputProvider.InputMode mode,
+                                                int gamepadRank = -1)
     {
         var p = car.GetComponent<VehicleInputProvider>();
         if (p == null) p = car.AddComponent<VehicleInputProvider>();
         p.playerIndex = idx;
+        if (gamepadRank >= 0)
+            p.gamepadSlotRank = gamepadRank;   // must be set before SetMode
         p.SetMode(mode);
         return p;
     }
